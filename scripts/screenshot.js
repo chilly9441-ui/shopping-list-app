@@ -12,9 +12,30 @@ const OUTPUT = path.join(ROOT, "docs", "screenshot.png");
 const SAMPLE_ITEMS = ["우유", "계란 한 판", "식빵", "사과", "주방 세제"];
 const DONE_ITEMS = ["계란 한 판", "식빵"];
 
-// 정적 서버가 응답할 때까지 기다림 (최대 10초)
-async function waitForServer() {
+const PORT_IN_USE_MESSAGE =
+  `포트 ${PORT}을(를) 이미 다른 프로그램이 쓰고 있습니다. ` +
+  `다른 포트로 실행해 주세요. 예: PORT=9000 npm run screenshot`;
+
+// 이 포트에서 무언가 응답하는지 확인
+async function isResponding() {
+  try {
+    await fetch(URL);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 우리가 띄운 정적 서버가 응답할 때까지 기다림 (최대 10초)
+// 서버가 먼저 종료되면(포트 충돌 등) 다른 서버의 응답을 받기 전에 바로 실패시킴
+async function waitForServer(server) {
+  let exitCode = null;
+  server.once("exit", (code) => (exitCode = code ?? -1));
+
   for (let i = 0; i < 50; i++) {
+    if (exitCode !== null) {
+      throw new Error(`정적 서버가 시작되지 못했습니다(종료 코드 ${exitCode}). ${PORT_IN_USE_MESSAGE}`);
+    }
     try {
       const res = await fetch(URL);
       if (res.ok) return;
@@ -23,16 +44,25 @@ async function waitForServer() {
     }
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error(`${URL} 서버가 응답하지 않습니다. 포트가 이미 사용 중인지 확인해 주세요.`);
+  throw new Error(`${URL} 서버가 10초 안에 응답하지 않습니다.`);
 }
 
 (async () => {
+  // 이미 누가 이 포트를 쓰고 있으면, 그 서버의 엉뚱한 화면을 찍지 않도록 시작 전에 중단
+  if (await isResponding()) throw new Error(PORT_IN_USE_MESSAGE);
+
   const server = spawn(process.execPath, [path.join(ROOT, "tests", "static-server.js"), String(PORT)], {
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"], // 서버 에러 메시지는 받아 두었다가 실패 시 보여 줌
   });
+  let serverErrors = "";
+  server.stderr.on("data", (chunk) => (serverErrors += chunk));
+
   let browser;
   try {
-    await waitForServer();
+    await waitForServer(server).catch((e) => {
+      if (serverErrors) e.message += `\n\n[정적 서버 출력]\n${serverErrors.trim()}`;
+      throw e;
+    });
     browser = await chromium.launch();
     // 고해상도 화면에서도 선명하도록 2배율로 찍음
     const page = await browser.newPage({ viewport: { width: 480, height: 560 }, deviceScaleFactor: 2 });
