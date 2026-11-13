@@ -348,6 +348,22 @@ test.describe("이전 버전 목록 옮기기", () => {
     expect(await readList(page)).toEqual(["우유", "계란", "우유(완료)"]);
   });
 
+  test("이미 옮긴 뒤 이전 버전 탭이 다시 저장해도 다시 옮기지 않고 지움", async ({ page }) => {
+    await seedLegacy(page, [{ id: 1, text: "우유", checked: true }]);
+    expect(await readList(page)).toEqual(["우유(완료)"]);
+
+    // 새 앱에서 지운 뒤, 열려 있던 이전 버전 탭이 자기 목록을 다시 저장한 상황
+    await page.getByRole("button", { name: "우유 삭제" }).click();
+    await page.evaluate(
+      (key) => localStorage.setItem(key, JSON.stringify([{ id: 1, text: "우유", checked: true }, { id: 2, text: "빵" }])),
+      LEGACY_KEY
+    );
+    await page.reload();
+
+    await expect(ui(page).empty).toBeVisible(); // 지운 우유가 되살아나지 않음
+    expect((await readStorage(page))[0]).toBeNull();
+  });
+
   test("잘못된 항목은 버리고 긴 이름은 100자로 자름", async ({ page }) => {
     await seedLegacy(page, [null, "s", { text: 3 }, { text: "   " }, { text: "가".repeat(150), checked: false }]);
     expect(await readList(page)).toEqual(["가".repeat(100)]);

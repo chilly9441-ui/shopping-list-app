@@ -1,6 +1,8 @@
 const STORAGE_KEY = "shopping-list";
 // 이전 버전 앱이 쓰던 저장 키 ({ id, text, checked } 형식)
 const LEGACY_STORAGE_KEY = "shopping-list-items";
+// 이전 목록을 이미 옮겼는지 표시하는 키
+const LEGACY_MIGRATED_KEY = "shopping-list-migrated";
 const MAX_NAME_LENGTH = 100; // index.html 입력창의 maxlength와 같게
 
 const form = document.getElementById("add-form");
@@ -38,6 +40,12 @@ function migrateLegacyItems() {
   try {
     const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
     if (raw === null) return; // 옮길 것이 없음
+    // 이미 한 번 옮겼는데 이전 키가 또 있으면, 업데이트 전에 열어 둔 이전 버전 탭이 다시 저장한 것.
+    // 다시 옮기면 완료 항목이 중복되고 새 앱에서 지운 항목이 되살아나므로 옮기지 않고 지움
+    if (localStorage.getItem(LEGACY_MIGRATED_KEY) !== null) {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      return;
+    }
     legacy = JSON.parse(raw);
   } catch {
     return; // 저장소를 쓸 수 없거나 데이터가 깨졌으면 건드리지 않음
@@ -61,7 +69,10 @@ function migrateLegacyItems() {
   }
 
   try {
+    // 순서 중요: 새 목록 저장 → 옮김 표시 → 이전 키 삭제
+    // (중간에 실패해도 데이터를 잃지 않도록 지우는 일은 맨 마지막에)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    localStorage.setItem(LEGACY_MIGRATED_KEY, "1");
     localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // 저장에 실패하면 이전 키를 남겨 두어 다음에 열 때 다시 시도
