@@ -2,6 +2,8 @@
 
 HTML·CSS·순수 JavaScript로 만든 간단한 쇼핑리스트 웹 앱입니다. 빌드 과정이나 서버 없이 브라우저에서 바로 동작하며, 목록은 브라우저의 `localStorage`에 저장됩니다.
 
+**🔗 배포 사이트: https://shopping-list-app-pt9i.vercel.app/**
+
 <p align="center">
   <img src="docs/screenshot.png" alt="쇼핑리스트 앱 화면: 아이템 5개 중 '계란 한 판'과 '식빵'이 완료로 체크되어 취소선이 그어져 있고, 아래에 '2 / 5 완료'와 '완료 항목 지우기' 버튼이 보임" width="440" />
 </p>
@@ -28,7 +30,9 @@ HTML·CSS·순수 JavaScript로 만든 간단한 쇼핑리스트 웹 앱입니�
 
 ## 실행 방법
 
-`index.html` 파일을 브라우저로 열면 바로 사용할 수 있습니다.
+설치 없이 [배포 사이트](https://shopping-list-app-pt9i.vercel.app/)에서 바로 써 볼 수 있습니다.
+
+내 컴퓨터에서 실행하려면 `index.html` 파일을 브라우저로 열면 됩니다.
 
 로컬 서버로 띄우고 싶다면 함께 들어 있는 정적 서버를 사용하세요(Node.js 필요).
 
@@ -36,6 +40,10 @@ HTML·CSS·순수 JavaScript로 만든 간단한 쇼핑리스트 웹 앱입니�
 node tests/static-server.js 8765
 # 브라우저에서 http://127.0.0.1:8765 접속
 ```
+
+## 배포
+
+이 저장소는 [Vercel](https://vercel.com/)과 연결되어 있어, `main` 브랜치에 push하면 자동으로 [배포 사이트](https://shopping-list-app-pt9i.vercel.app/)에 반영됩니다. 빌드 과정이 없는 정적 사이트라 별도 설정은 필요 없습니다.
 
 ## 테스트
 
