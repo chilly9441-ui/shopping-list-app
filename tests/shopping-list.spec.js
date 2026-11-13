@@ -290,6 +290,76 @@ test.describe("저장", () => {
   });
 });
 
+// ---------- 이전 버전 목록 옮기기 ----------
+
+const LEGACY_KEY = "shopping-list-items";
+
+/** 이전 버전 앱의 저장 데이터(와 필요하면 새 앱 데이터)를 넣고 새로고침 */
+async function seedLegacy(page, legacy, current) {
+  await page.evaluate(
+    ([legacyKey, legacyValue, key, value]) => {
+      localStorage.setItem(legacyKey, legacyValue);
+      if (value !== null) localStorage.setItem(key, value);
+    },
+    [
+      LEGACY_KEY,
+      typeof legacy === "string" ? legacy : JSON.stringify(legacy),
+      STORAGE_KEY,
+      current === undefined ? null : JSON.stringify(current),
+    ]
+  );
+  await page.reload();
+}
+
+function readStorage(page) {
+  return page.evaluate(([legacyKey, key]) => [localStorage.getItem(legacyKey), JSON.parse(localStorage.getItem(key))], [
+    LEGACY_KEY,
+    STORAGE_KEY,
+  ]);
+}
+
+test.describe("이전 버전 목록 옮기기", () => {
+  test("이름·완료 상태를 옮기고 이전 키를 지움, 새로고침해도 한 번만 옮김", async ({ page }) => {
+    await seedLegacy(page, [
+      { id: 1.5, text: "우유", checked: false },
+      { id: 2.5, text: "  빵  ", checked: true },
+    ]);
+    expect(await readList(page)).toEqual(["우유", "빵(완료)"]);
+
+    const [legacy, saved] = await readStorage(page);
+    expect(legacy).toBeNull();
+    expect(saved.map((/** @type {any} */ i) => typeof i.id)).toEqual(["string", "string"]);
+
+    await page.reload();
+    expect(await readList(page)).toEqual(["우유", "빵(완료)"]);
+  });
+
+  test("새 앱 목록 뒤에 붙이고, 완료하지 않은 같은 이름은 하나만 남김", async ({ page }) => {
+    await seedLegacy(
+      page,
+      [
+        { id: 1, text: "우유", checked: false }, // 새 목록에 이미 있음 → 빠짐
+        { id: 2, text: "계란", checked: false },
+        { id: 3, text: "계란", checked: false }, // 이전 목록 안의 중복 → 빠짐
+        { id: 4, text: "우유", checked: true }, // 완료된 항목은 남김
+      ],
+      [{ id: "a", name: "우유", done: false }]
+    );
+    expect(await readList(page)).toEqual(["우유", "계란", "우유(완료)"]);
+  });
+
+  test("잘못된 항목은 버리고 긴 이름은 100자로 자름", async ({ page }) => {
+    await seedLegacy(page, [null, "s", { text: 3 }, { text: "   " }, { text: "가".repeat(150), checked: false }]);
+    expect(await readList(page)).toEqual(["가".repeat(100)]);
+  });
+
+  test("이전 데이터의 JSON이 깨져 있으면 건드리지 않음", async ({ page }) => {
+    await seedLegacy(page, "{bad", [{ id: "a", name: "우유", done: false }]);
+    expect(await readList(page)).toEqual(["우유"]);
+    expect((await readStorage(page))[0]).toBe("{bad");
+  });
+});
+
 // ---------- 탭 동기화 ----------
 
 test("다른 탭에서 바꾼 내용이 반영되고 중복 검사에도 쓰임", async ({ page, context }) => {

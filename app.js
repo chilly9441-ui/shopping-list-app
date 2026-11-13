@@ -1,4 +1,7 @@
 const STORAGE_KEY = "shopping-list";
+// 이전 버전 앱이 쓰던 저장 키 ({ id, text, checked } 형식)
+const LEGACY_STORAGE_KEY = "shopping-list-items";
+const MAX_NAME_LENGTH = 100; // index.html 입력창의 maxlength와 같게
 
 const form = document.getElementById("add-form");
 const input = document.getElementById("item-input");
@@ -25,7 +28,49 @@ function progressText() {
   return items.length ? ` (${doneCount} / ${items.length} 완료)` : "";
 }
 
+migrateLegacyItems();
 let items = loadItems();
+
+// 이전 버전 앱에 저장된 목록을 새 형식으로 옮겨 옴.
+// 새 앱에서 이미 만든 목록이 있으면 그 뒤에 붙이고, 다 옮긴 뒤 이전 키를 지워 한 번만 실행되게 함.
+function migrateLegacyItems() {
+  let legacy;
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (raw === null) return; // 옮길 것이 없음
+    legacy = JSON.parse(raw);
+  } catch {
+    return; // 저장소를 쓸 수 없거나 데이터가 깨졌으면 건드리지 않음
+  }
+
+  const merged = loadItems();
+  // 새 앱 규칙과 같게, 완료하지 않은 같은 이름(대소문자 무시)은 하나만 남김
+  const undoneNames = new Set(merged.filter((i) => !i.done).map((i) => i.name.toLocaleLowerCase()));
+
+  for (const old of Array.isArray(legacy) ? legacy : []) {
+    if (!old || typeof old.text !== "string") continue;
+    const name = old.text.trim().slice(0, MAX_NAME_LENGTH);
+    if (!name) continue;
+    const done = Boolean(old.checked);
+    if (!done) {
+      const key = name.toLocaleLowerCase();
+      if (undoneNames.has(key)) continue;
+      undoneNames.add(key);
+    }
+    merged.push({ id: newId(), name, done });
+  }
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // 저장에 실패하면 이전 키를 남겨 두어 다음에 열 때 다시 시도
+  }
+}
+
+function newId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
 
 function loadItems() {
   try {
@@ -49,7 +94,7 @@ function saveItems() {
 }
 
 function addItem(name) {
-  items.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), name, done: false });
+  items.push({ id: newId(), name, done: false });
   saveItems();
   render();
   announce(`${name} 추가됨${progressText()}`);
