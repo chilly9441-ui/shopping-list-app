@@ -16,13 +16,22 @@ const PORT_IN_USE_MESSAGE =
   `포트 ${PORT}을(를) 이미 다른 프로그램이 쓰고 있습니다. ` +
   `다른 포트로 실행해 주세요. 예: PORT=9000 npm run screenshot`;
 
-// 이 포트에서 무언가 응답하는지 확인
-async function isResponding() {
+// 한 번의 요청이 응답 없이 오래 걸리지 않도록 시간 제한을 둠
+// (연결만 받고 아무 말도 안 하는 프로그램이 포트를 쓰면 기본값으로는 약 5분을 기다림)
+const REQUEST_TIMEOUT_MS = 1000;
+
+function request() {
+  return fetch(URL, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
+
+// 이 포트를 이미 누가 쓰고 있는지 확인
+async function isPortTaken() {
   try {
-    await fetch(URL);
-    return true;
-  } catch {
-    return false;
+    await request();
+    return true; // 어떤 응답이든 왔다면 다른 서버가 떠 있음
+  } catch (e) {
+    // 연결은 됐는데 시간 안에 응답이 없으면 무언가 포트를 잡고 있는 것
+    return e instanceof Error && e.name === "TimeoutError";
   }
 }
 
@@ -37,7 +46,7 @@ async function waitForServer(server) {
       throw new Error(`정적 서버가 시작되지 못했습니다(종료 코드 ${exitCode}). ${PORT_IN_USE_MESSAGE}`);
     }
     try {
-      const res = await fetch(URL);
+      const res = await request();
       if (res.ok) return;
     } catch {
       // 아직 서버가 안 떴으면 잠시 후 다시 시도
@@ -49,7 +58,7 @@ async function waitForServer(server) {
 
 (async () => {
   // 이미 누가 이 포트를 쓰고 있으면, 그 서버의 엉뚱한 화면을 찍지 않도록 시작 전에 중단
-  if (await isResponding()) throw new Error(PORT_IN_USE_MESSAGE);
+  if (await isPortTaken()) throw new Error(PORT_IN_USE_MESSAGE);
 
   const server = spawn(process.execPath, [path.join(ROOT, "tests", "static-server.js"), String(PORT)], {
     stdio: ["ignore", "ignore", "pipe"], // 서버 에러 메시지는 받아 두었다가 실패 시 보여 줌
