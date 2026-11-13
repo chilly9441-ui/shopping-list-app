@@ -1,0 +1,121 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  background: #f4f6f8;
+  color: #222;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 16px;
+}
+
+.app {
+  width: 100%;
+  max-width: 440px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+h1 { margin: 0 0 20px; font-size: 1.5rem; }
+
+.add-form { display: flex; gap: 8px; }
+
+.add-form input {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 1rem;
+  border: 1px solid #ccd;
+  border-radius: 8px;
+  min-width: 0; /* 좁은 화면에서 버튼 자리를 뺏지 않도록 */
+}
+.add-form input:focus-visible { outline: 2px solid #2563eb; border-color: transparent; }
+.add-form input[aria-invalid="true"] { border-color: #dc2626; }
+
+button {
+  cursor: pointer;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+}
+
+/* 키보드 포커스 테두리를 모든 버튼·체크박스에서 입력창과 같은 파란색으로 통일 */
+button:focus-visible,
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.add-form button {
+  padding: 10px 16px;
+  background: #2563eb;
+  color: #fff;
+  flex-shrink: 0;
+  white-space: nowrap; /* "추가"가 세로로 쪼개지지 않게 */
+}
+.add-form button:hover { background: #1d4ed8; }
+
+.error {
+  color: #dc2626;
+  font-size: 0.875rem;
+  min-height: 1.2em;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere; /* 공백 없는 긴 이름이 들어가도 카드 밖으로 넘치지 않게 */
+}
+
+.list { list-style: none; margin: 12px 0 0; padding: 0; }
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid #eee;
+}
+.item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+.item label { flex: 1; cursor: pointer; word-break: break-word; }
+.item.done label { text-decoration: line-through; color: #6b7280; }
+
+.delete-btn {
+  background: transparent;
+  color: #6b7280;
+  padding: 4px 8px;
+}
+.delete-btn:hover { color: #dc2626; background: #fee2e2; }
+
+.empty { color: #6b7280; text-align: center; margin: 24px 0; }
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.link-btn {
+  background: none;
+  color: #2563eb;
+  padding: 6px 8px;
+  margin-right: -8px; /* 여백을 늘려도 글자는 목록 오른쪽 끝에 맞춰 둠 */
+  min-height: 24px;
+  font-size: 0.875rem;
+  border-radius: 6px;
+}
+.link-btn:hover { text-decoration: underline; }
+.link-btn:disabled { color: #bbb; cursor: default; text-decoration: none; }
+
+[hidden] { display: none !important; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

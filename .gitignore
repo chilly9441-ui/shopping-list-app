@@ -1,0 +1,9 @@
+node_modules/
+test-results/
+playwright-report/
+
+# 쇼핑 리스트 앱과 무관한 파일
+.claude/
+.playwright-mcp/
+skills-lock.json
+AI_기술트렌드_요약.*
