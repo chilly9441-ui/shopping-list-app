@@ -51,6 +51,26 @@ node tests/static-server.js 8765
 - **Site URL**: `https://shopping-list-app-pt9i.vercel.app`
 - **Redirect URLs**: `https://shopping-list-app-pt9i.vercel.app/**`, `http://127.0.0.1:8765/**` (로컬에서 시험할 때)
 
+대시보드 메뉴를 찾기 어려우면 `https://supabase.com/dashboard/project/<프로젝트 ID>/auth/url-configuration`으로 바로 들어갈 수 있습니다.
+
+### 연결 테스트 결과 (2026-11-16)
+
+배포 사이트를 휴대폰(Android, 삼성 인터넷)에서 열어 직접 사용해 본 뒤, Supabase MCP로 DB의 `shopping_items` 테이블과 API 로그(`edge_logs`)를 조회해 화면에서 한 동작이 서버에 그대로 반영됐는지 확인했습니다.
+
+| 기능 | 앱이 보내는 요청 | 결과 |
+|---|---|---|
+| 이메일 로그인 링크 | Supabase Auth 매직링크 | ✅ 메일 링크로 배포 사이트에 돌아와 로그인, 계정 이메일 인증 완료 |
+| 아이템 추가 | `POST /rest/v1/shopping_items` | ✅ 201, 로그인한 계정의 `user_id`로 저장 |
+| 완료 체크 / 체크 해제 | `PATCH ...?id=eq.<id>` | ✅ 204, `done` 값 변경 |
+| ✕ 버튼으로 삭제 | `DELETE ...?id=eq.<id>` | ✅ 204, 해당 행 삭제 |
+| 완료 항목 지우기 | `DELETE ...?done=eq.true` | ✅ 204, 완료 항목만 삭제되고 미완료 항목은 남음 |
+| 목록 다시 불러오기 | `GET ...?select=id,name,done&order=created_at.asc,id.asc` | ✅ 200 |
+| 로그인 없이 접근 | publishable 키만으로 `select` | ✅ `42501 permission denied`로 거절 (RLS·권한 설정이 동작) |
+
+- 테스트 동안 보낸 모든 요청이 성공(2xx)했고, 실패한 요청은 없었습니다.
+- 테스트가 끝난 뒤 DB에 남은 행은 화면의 목록과 일치했습니다.
+- 확인하지 않은 것: 여러 기기에서 동시에 쓰기, 로그인 전 `localStorage` 목록을 실제 계정으로 옮기기(자동 테스트로만 확인).
+
 ## 배포
 
 이 저장소는 [Vercel](https://vercel.com/)과 연결되어 있어, `main` 브랜치에 push하면 자동으로 [배포 사이트](https://shopping-list-app-pt9i.vercel.app/)에 반영됩니다. 빌드 과정이 없는 정적 사이트라 별도 설정은 필요 없습니다.
