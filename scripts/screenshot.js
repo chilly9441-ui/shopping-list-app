@@ -3,6 +3,7 @@
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { chromium } = require("@playwright/test");
+const { useFakeSupabase } = require("../tests/use-fake-supabase");
 
 const ROOT = path.resolve(__dirname, "..");
 const PORT = Number(process.env.PORT || 8799);
@@ -75,7 +76,10 @@ async function waitForServer(server) {
     browser = await chromium.launch();
     // 고해상도 화면에서도 선명하도록 2배율로 찍음
     const page = await browser.newPage({ viewport: { width: 480, height: 560 }, deviceScaleFactor: 2 });
+    // 실제 Supabase 대신 테스트용 가짜 클라이언트로, 로그인된 화면을 찍음
+    await useFakeSupabase(page);
     await page.goto(URL);
+    await page.locator("#item-input").waitFor();
 
     for (const name of SAMPLE_ITEMS) {
       await page.fill("#item-input", name);

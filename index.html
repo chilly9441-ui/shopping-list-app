@@ -9,27 +9,58 @@
 </head>
 <body>
   <main class="app">
-    <h1><span aria-hidden="true">🛒 </span>쇼핑리스트</h1>
+    <header class="header">
+      <h1><span aria-hidden="true">🛒 </span>쇼핑리스트</h1>
+      <div id="user-bar" class="user-bar" hidden>
+        <span id="user-email" class="user-email"></span>
+        <button id="logout" type="button" class="link-btn">로그아웃</button>
+      </div>
+    </header>
 
-    <form id="add-form" class="add-form">
-      <label for="item-input" class="sr-only">추가할 아이템</label>
-      <input id="item-input" type="text" placeholder="예: 우유" maxlength="100" autocomplete="off" />
-      <button type="submit">추가</button>
-    </form>
-    <p id="error" class="error" role="alert"></p>
+    <p id="loading" class="empty">불러오는 중…</p>
 
-    <ul id="list" class="list"></ul>
-    <p id="empty" class="empty">아직 아이템이 없어요. 위에서 추가해 보세요.</p>
+    <!-- 로그인하지 않았을 때: 이메일로 로그인 링크 받기 -->
+    <section id="auth" class="auth" hidden>
+      <p class="auth-intro">이메일로 받은 로그인 링크를 누르면 어느 기기에서든 같은 목록을 쓸 수 있어요.</p>
+      <form id="login-form" class="add-form" novalidate>
+        <label for="email-input" class="sr-only">이메일 주소</label>
+        <input id="email-input" type="email" placeholder="이메일 주소" autocomplete="email" />
+        <button id="login-btn" type="submit">링크 받기</button>
+      </form>
+      <p id="login-message" class="message" role="status"></p>
+      <p id="login-error" class="error" role="alert"></p>
+    </section>
 
-    <footer class="footer">
-      <span id="count"></span>
-      <button id="clear-done" type="button" class="link-btn">완료 항목 지우기</button>
-    </footer>
+    <!-- 로그인했을 때: 쇼핑리스트 -->
+    <section id="list-section" hidden>
+      <form id="add-form" class="add-form">
+        <label for="item-input" class="sr-only">추가할 아이템</label>
+        <input id="item-input" type="text" placeholder="예: 우유" maxlength="100" autocomplete="off" />
+        <button type="submit">추가</button>
+      </form>
+      <p id="error" class="error" role="alert"></p>
+
+      <ul id="list" class="list"></ul>
+      <p id="empty" class="empty">아직 아이템이 없어요. 위에서 추가해 보세요.</p>
+
+      <footer class="footer">
+        <span id="count"></span>
+        <button id="clear-done" type="button" class="link-btn">완료 항목 지우기</button>
+      </footer>
+      <p id="sync-error" class="error" role="alert"></p>
+    </section>
 
     <!-- 화면에는 보이지 않고, 화면 읽기 프로그램이 변경 내용을 읽어 주는 영역 -->
     <div id="status" class="sr-only" role="status" aria-live="polite"></div>
   </main>
 
+  <!-- integrity: 받은 파일이 이 버전의 원본과 다르면 실행하지 않음 (CDN 변조 방지) -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.115.0/dist/umd/supabase.js"
+    integrity="sha384-CLZeq1dk8+Uzrs7TVvBUdlFoV5F0DMqgRoeHa8g5wJcuPe5SkVfEvdxB0ZuzlnBQ"
+    crossorigin="anonymous"
+  ></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

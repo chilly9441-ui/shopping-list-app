@@ -21,7 +21,34 @@ body {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
-h1 { margin: 0 0 20px; font-size: 1.5rem; }
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 20px;
+}
+h1 { margin: 0; font-size: 1.5rem; }
+
+.user-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: #666;
+}
+.user-email { overflow-wrap: anywhere; }
+
+.auth-intro { margin: 0 0 12px; color: #444; line-height: 1.5; }
+.message {
+  color: #15803d;
+  font-size: 0.875rem;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+.message:empty { display: none; }
 
 .add-form { display: flex; gap: 8px; }
 
@@ -58,6 +85,7 @@ input[type="checkbox"]:focus-visible {
   white-space: nowrap; /* "추가"가 세로로 쪼개지지 않게 */
 }
 .add-form button:hover { background: #1d4ed8; }
+.add-form button:disabled { background: #93a8d8; cursor: default; }
 
 .error {
   color: #dc2626;

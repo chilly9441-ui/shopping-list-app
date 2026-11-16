@@ -1,7 +1,13 @@
 // @ts-check
 const { test, expect } = require("@playwright/test");
 
+const { useFakeSupabase, SUPABASE_CDN } = require("./use-fake-supabase");
+
 const STORAGE_KEY = "shopping-list";
+// 가짜 Supabase(tests/fake-supabase.js)가 쓰는 localStorage 키
+const DB_KEY = "fake-supabase-db";
+const SIGNED_OUT_KEY = "fake-supabase-signed-out";
+const FAIL_KEY = "fake-supabase-fail";
 
 // ---------- 도우미 ----------
 
@@ -41,13 +47,29 @@ function activeId(page) {
   return page.evaluate(() => document.activeElement?.id ?? "");
 }
 
-/** 저장소에 목록을 미리 넣고 새로고침 */
+/** 앱이 로그인 상태를 확인하고 목록을 다 불러올 때까지 기다림 */
+async function ready(page) {
+  await expect(page.locator("#loading")).toBeHidden();
+  await expect(page.locator("#list-section[aria-busy]")).toHaveCount(0);
+}
+
+/** 서버(가짜 DB)에 목록을 미리 넣고 새로고침 */
 async function seed(page, items) {
-  await page.evaluate(
-    ([key, value]) => localStorage.setItem(key, value),
-    [STORAGE_KEY, typeof items === "string" ? items : JSON.stringify(items)]
-  );
+  const rows = items.map((i, n) => ({ id: n + 1, name: i.name, done: Boolean(i.done) }));
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [DB_KEY, JSON.stringify(rows)]);
   await page.reload();
+  await ready(page);
+}
+
+/** 서버(가짜 DB)에 저장된 목록을 ["이름", "이름(완료)"] 형태로 읽음 */
+function readDb(page) {
+  return page.evaluate(
+    (key) =>
+      JSON.parse(localStorage.getItem(key) || "[]").map(
+        (/** @type {any} */ r) => r.name + (r.done ? "(완료)" : "")
+      ),
+    DB_KEY
+  );
 }
 
 function hasHorizontalScroll(page) {
@@ -59,9 +81,15 @@ function hasHorizontalScroll(page) {
 /** @type {string[]} */
 let problems = [];
 
-// 각 테스트는 새 브라우저 컨텍스트에서 실행되므로 localStorage가 비어 있는 상태로 시작함
+// 각 테스트는 새 브라우저 컨텍스트에서 실행되므로 localStorage(가짜 DB 포함)가 비어 있는 상태로 시작함
 test.beforeEach(async ({ page, context }) => {
   problems = [];
+  // 실제 Supabase 대신 가짜 클라이언트를 내려보냄 (로그인된 상태로 시작)
+  await useFakeSupabase(context);
+  await context.route("https://*.supabase.co/**", (route) => {
+    problems.push(`실제 Supabase 요청: ${route.request().url()}`);
+    return route.abort();
+  });
   // 다른 탭(page)도 감시하도록 컨텍스트 단위로 등록
   context.on("console", (m) => m.type() === "error" && problems.push(`console: ${m.text()}`));
   context.on("weberror", (e) => problems.push(`pageerror: ${e.error().message}`));
@@ -71,6 +99,7 @@ test.beforeEach(async ({ page, context }) => {
     d.dismiss();
   });
   await page.goto("/");
+  await ready(page);
 });
 
 test.afterEach(() => {
@@ -226,6 +255,7 @@ test.describe("완료 체크", () => {
     await expect(status).toContainText("하나로 합쳤습니다");
 
     await page.reload();
+    await ready(page);
     expect(await readList(page)).toEqual(["빵", "우유"]);
   });
 });
@@ -267,127 +297,228 @@ test("완료 항목 지우기: 완료 항목만 지우고 버튼 비활성, 입�
   await expect(status).toHaveText("완료 항목 2개를 지웠습니다 (0 / 1 완료)");
 });
 
-// ---------- 저장 ----------
+// ---------- 서버 저장 ----------
 
-test.describe("저장", () => {
-  test("새로고침 후에도 목록과 완료 상태 유지", async ({ page }) => {
+test.describe("서버 저장", () => {
+  test("추가·완료·삭제가 서버에 저장되고 새로고침 후에도 유지", async ({ page }) => {
     const { checkboxes } = ui(page);
     for (const n of ["사과", "배", "귤"]) await add(page, n);
     await checkboxes.nth(0).check();
     await checkboxes.nth(2).check();
+    await page.getByRole("button", { name: "배 삭제" }).click();
+    expect(await readDb(page)).toEqual(["사과(완료)", "귤(완료)"]);
+
     await page.reload();
-    expect(await readList(page)).toEqual(["사과(완료)", "배", "귤(완료)"]);
+    await ready(page);
+    expect(await readList(page)).toEqual(["사과(완료)", "귤(완료)"]);
   });
 
-  test("잘못된 모양의 저장 항목은 걸러냄", async ({ page }) => {
-    await seed(page, '[{"id":1,"name":"x"},null,"s",{"id":"a","name":"ok","done":"yes"}]');
-    expect(await readList(page)).toEqual(["ok(완료)"]);
+  test("저장에 실패하면 안내하고 서버 목록으로 되돌림, 다음 성공 때 안내가 사라짐", async ({ page }) => {
+    const syncError = page.locator("#sync-error");
+    await add(page, "우유");
+    await page.evaluate((key) => localStorage.setItem(key, "1"), FAIL_KEY);
+
+    await ui(page).checkboxes.first().click(); // 실패 후 체크가 풀리므로 check() 대신 click()
+    await expect(syncError).toContainText("저장하지 못했어요");
+    expect(await readList(page)).toEqual(["우유"]); // 체크 표시가 되돌아감
+
+    await add(page, "빵");
+    expect(await readList(page)).toEqual(["우유"]);
+    await expect(ui(page).input).toHaveValue("빵"); // 입력한 글자가 사라지지 않음
+
+    await page.evaluate((key) => localStorage.removeItem(key), FAIL_KEY);
+    await add(page, "빵");
+    expect(await readList(page)).toEqual(["우유", "빵"]);
+    await expect(syncError).toHaveText("");
   });
 
-  test("JSON이 깨져 있으면 빈 목록으로 시작", async ({ page }) => {
-    await seed(page, "{bad");
-    await expect(ui(page).empty).toBeVisible();
+  test("다른 곳에서 먼저 같은 이름을 추가했으면 중복 안내", async ({ page }) => {
+    // 화면에는 없지만 서버에는 이미 있는 상태 (다른 기기에서 추가)
+    await page.evaluate(
+      (key) => localStorage.setItem(key, JSON.stringify([{ id: 1, name: "우유", done: false }])),
+      DB_KEY
+    );
+    await add(page, "우유");
+    await expect(ui(page).error).toHaveText('"우유"은(는) 이미 목록에 있어요.');
+    await expect(ui(page).input).toHaveValue("우유");
+    expect(await readList(page)).toEqual(["우유"]); // 서버 목록을 다시 불러옴
   });
 });
 
-// ---------- 이전 버전 목록 옮기기 ----------
+// ---------- 로그인 ----------
+
+test.describe("로그인", () => {
+  /** 로그아웃 상태로 다시 엶 */
+  async function signOut(page) {
+    await page.evaluate((key) => localStorage.setItem(key, "1"), SIGNED_OUT_KEY);
+    await page.reload();
+    await expect(page.locator("#loading")).toBeHidden();
+  }
+
+  test("로그인 전에는 이메일 입력만 보이고 목록은 숨김", async ({ page }) => {
+    await signOut(page);
+    await expect(page.getByRole("textbox", { name: "이메일 주소" })).toBeVisible();
+    await expect(ui(page).input).toBeHidden();
+    await expect(page.getByRole("button", { name: "로그아웃" })).toBeHidden();
+  });
+
+  test("이메일을 넣으면 로그인 링크를 보내고 안내", async ({ page }) => {
+    await signOut(page);
+    const email = page.getByRole("textbox", { name: "이메일 주소" });
+    await email.fill("  me@example.com ");
+    await email.press("Enter");
+    await expect(page.locator("#login-message")).toHaveText(
+      "me@example.com로 로그인 링크를 보냈어요. 메일함을 확인해 주세요."
+    );
+    expect(await page.evaluate(() => /** @type {any} */ (window).__lastOtpEmail)).toBe("me@example.com");
+  });
+
+  test("잘못된 이메일이면 에러, 전송 실패도 안내", async ({ page }) => {
+    await signOut(page);
+    const email = page.getByRole("textbox", { name: "이메일 주소" });
+    const error = page.locator("#login-error");
+
+    await email.fill("not-an-email");
+    await email.press("Enter");
+    await expect(error).toHaveText("올바른 이메일 주소를 입력해 주세요.");
+    await expect(email).toHaveAttribute("aria-invalid", "true");
+
+    await page.evaluate((key) => localStorage.setItem(key, "1"), FAIL_KEY);
+    await email.fill("me@example.com");
+    await expect(error).toHaveText("");
+    await email.press("Enter");
+    await expect(error).toHaveText("요청이 너무 많아요. 잠시 후 다시 시도해 주세요.");
+    await expect(page.locator("#login-message")).toHaveText("");
+  });
+
+  test("로그인하면 이메일과 로그아웃 버튼, 로그아웃하면 목록을 숨김", async ({ page }) => {
+    await add(page, "우유");
+    await expect(page.locator("#user-email")).toHaveText("tester@example.com");
+    await page.getByRole("button", { name: "로그아웃" }).click();
+    await expect(page.getByRole("textbox", { name: "이메일 주소" })).toBeVisible();
+    await expect(ui(page).labels).toHaveCount(0);
+    // 다른 기기는 로그인 상태를 유지하도록 이 기기만 로그아웃
+    expect(await page.evaluate(() => /** @type {any} */ (window).__lastSignOutScope)).toBe("local");
+  });
+
+  test("supabase-js를 불러오지 못하면 안내를 보여 줌", async ({ page }) => {
+    await page.route(SUPABASE_CDN, (route) => route.abort());
+    await page.reload();
+    await expect(page.getByRole("alert").filter({ hasText: "앱을 불러오지 못했어요" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "이메일 주소" })).toBeHidden();
+    // 일부러 막은 CDN 요청의 콘솔 오류는 이 테스트에서 예상된 것이므로 제외
+    problems = problems.filter((p) => !p.includes("Failed to load resource"));
+  });
+});
+
+// ---------- 이 기기 목록을 계정으로 옮기기 ----------
 
 const LEGACY_KEY = "shopping-list-items";
 
-/** 이전 버전 앱의 저장 데이터(와 필요하면 새 앱 데이터)를 넣고 새로고침 */
-async function seedLegacy(page, legacy, current) {
+/** 로그인 전 버전의 기기 저장 데이터(와 필요하면 서버 목록)를 넣고 새로고침 */
+async function seedLocal(page, { legacy, local, server } = {}) {
   await page.evaluate(
-    ([legacyKey, legacyValue, key, value]) => {
-      localStorage.setItem(legacyKey, legacyValue);
-      if (value !== null) localStorage.setItem(key, value);
+    ([entries]) => {
+      for (const [k, v] of entries) if (v !== null) localStorage.setItem(k, v);
     },
     [
-      LEGACY_KEY,
-      typeof legacy === "string" ? legacy : JSON.stringify(legacy),
-      STORAGE_KEY,
-      current === undefined ? null : JSON.stringify(current),
+      [
+        [LEGACY_KEY, legacy === undefined ? null : typeof legacy === "string" ? legacy : JSON.stringify(legacy)],
+        [STORAGE_KEY, local === undefined ? null : JSON.stringify(local)],
+        [DB_KEY, server === undefined ? null : JSON.stringify(server)],
+      ],
     ]
   );
   await page.reload();
+  await ready(page);
 }
 
-function readStorage(page) {
-  return page.evaluate(([legacyKey, key]) => [localStorage.getItem(legacyKey), JSON.parse(localStorage.getItem(key))], [
-    LEGACY_KEY,
-    STORAGE_KEY,
-  ]);
+function readLocalKeys(page) {
+  return page.evaluate(([a, b]) => [localStorage.getItem(a), localStorage.getItem(b)], [LEGACY_KEY, STORAGE_KEY]);
 }
 
-test.describe("이전 버전 목록 옮기기", () => {
-  test("이름·완료 상태를 옮기고 이전 키를 지움, 새로고침해도 한 번만 옮김", async ({ page }) => {
-    await seedLegacy(page, [
-      { id: 1.5, text: "우유", checked: false },
-      { id: 2.5, text: "  빵  ", checked: true },
-    ]);
+test.describe("이 기기 목록을 계정으로 옮기기", () => {
+  test("기기 목록을 서버로 옮기고 기기에서는 지움, 새로고침해도 한 번만 옮김", async ({ page }) => {
+    await seedLocal(page, {
+      local: [
+        { id: "a", name: "우유", done: false },
+        { id: "b", name: "빵", done: true },
+      ],
+    });
     expect(await readList(page)).toEqual(["우유", "빵(완료)"]);
-
-    const [legacy, saved] = await readStorage(page);
-    expect(legacy).toBeNull();
-    expect(saved.map((/** @type {any} */ i) => typeof i.id)).toEqual(["string", "string"]);
+    expect(await readDb(page)).toEqual(["우유", "빵(완료)"]);
+    expect(await readLocalKeys(page)).toEqual([null, null]);
+    await expect(ui(page).status).toHaveText("이 기기에 있던 항목 2개를 계정으로 옮겼습니다");
 
     await page.reload();
+    await ready(page);
     expect(await readList(page)).toEqual(["우유", "빵(완료)"]);
   });
 
-  test("새 앱 목록 뒤에 붙이고, 완료하지 않은 같은 이름은 하나만 남김", async ({ page }) => {
-    await seedLegacy(
-      page,
-      [
-        { id: 1, text: "우유", checked: false }, // 새 목록에 이미 있음 → 빠짐
-        { id: 2, text: "계란", checked: false },
+  test("더 이전 버전 목록도 옮기고, 서버 목록 뒤에 붙이며 미완료 같은 이름은 하나만 남김", async ({ page }) => {
+    await seedLocal(page, {
+      server: [{ id: 1, name: "우유", done: false }],
+      legacy: [
+        { id: 1, text: "우유", checked: false }, // 서버에 이미 있음 → 빠짐
+        { id: 2, text: "  계란  ", checked: false },
         { id: 3, text: "계란", checked: false }, // 이전 목록 안의 중복 → 빠짐
         { id: 4, text: "우유", checked: true }, // 완료된 항목은 남김
       ],
-      [{ id: "a", name: "우유", done: false }]
-    );
+    });
     expect(await readList(page)).toEqual(["우유", "계란", "우유(완료)"]);
+    expect(await readLocalKeys(page)).toEqual([null, null]);
   });
 
   test("이미 옮긴 뒤 이전 버전 탭이 다시 저장해도 다시 옮기지 않고 지움", async ({ page }) => {
-    await seedLegacy(page, [{ id: 1, text: "우유", checked: true }]);
+    await seedLocal(page, { legacy: [{ id: 1, text: "우유", checked: true }] });
     expect(await readList(page)).toEqual(["우유(완료)"]);
 
     // 새 앱에서 지운 뒤, 열려 있던 이전 버전 탭이 자기 목록을 다시 저장한 상황
     await page.getByRole("button", { name: "우유 삭제" }).click();
-    await page.evaluate(
-      (key) => localStorage.setItem(key, JSON.stringify([{ id: 1, text: "우유", checked: true }, { id: 2, text: "빵" }])),
-      LEGACY_KEY
-    );
-    await page.reload();
+    await seedLocal(page, { legacy: [{ id: 1, text: "우유", checked: true }, { id: 2, text: "빵" }] });
 
     await expect(ui(page).empty).toBeVisible(); // 지운 우유가 되살아나지 않음
-    expect((await readStorage(page))[0]).toBeNull();
+    expect((await readLocalKeys(page))[0]).toBeNull();
   });
 
   test("잘못된 항목은 버리고 긴 이름은 100자로 자름", async ({ page }) => {
-    await seedLegacy(page, [null, "s", { text: 3 }, { text: "   " }, { text: "가".repeat(150), checked: false }]);
-    expect(await readList(page)).toEqual(["가".repeat(100)]);
+    await seedLocal(page, {
+      legacy: [null, "s", { text: 3 }, { text: "   " }, { text: "가".repeat(150), checked: false }],
+      local: [null, { id: 1 }, { name: 5 }, { name: "ok", done: "yes" }],
+    });
+    expect(await readList(page)).toEqual(["ok(완료)", "가".repeat(100)]);
   });
 
   test("이전 데이터의 JSON이 깨져 있으면 건드리지 않음", async ({ page }) => {
-    await seedLegacy(page, "{bad", [{ id: "a", name: "우유", done: false }]);
+    await seedLocal(page, { legacy: "{bad", server: [{ id: 1, name: "우유", done: false }] });
     expect(await readList(page)).toEqual(["우유"]);
-    expect((await readStorage(page))[0]).toBe("{bad");
+    expect((await readLocalKeys(page))[0]).toBe("{bad");
+  });
+
+  test("서버로 옮기기에 실패하면 기기 목록을 남겨 둠", async ({ page }) => {
+    await page.evaluate((key) => localStorage.setItem(key, "1"), FAIL_KEY);
+    await seedLocal(page, { local: [{ id: "a", name: "우유", done: false }] });
+    await expect(page.locator("#sync-error")).toContainText("저장하지 못했어요");
+    expect((await readLocalKeys(page))[1]).not.toBeNull();
   });
 });
 
 // ---------- 탭 동기화 ----------
 
-test("다른 탭에서 바꾼 내용이 반영되고 중복 검사에도 쓰임", async ({ page, context }) => {
+test("다른 탭에서 바꾼 내용이 돌아올 때 반영되고 중복 검사에도 쓰임", async ({ page, context }) => {
   const other = await context.newPage();
   await other.goto("/");
+  await ready(other);
   await add(other, "탭2");
 
+  const comeBack = () => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await comeBack();
   await expect(ui(page).labels).toHaveText(["탭2"]);
   await add(page, "탭2");
   await expect(ui(page).error).toContainText("이미 목록에 있어요");
 
-  await other.evaluate(() => localStorage.clear());
+  await other.getByRole("button", { name: "탭2 삭제" }).click();
+  await comeBack();
   await expect(ui(page).labels).toHaveCount(0);
   await other.close();
 });
@@ -420,7 +551,7 @@ test.describe("반응형", () => {
 test.describe("접근성", () => {
   test("누르는 영역이 24px 이상이고, 완료 항목 지우기 글자는 목록 오른쪽 끝에 맞음", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 700 });
-    await seed(page, [{ id: "a", name: "우유", done: true }]);
+    await seed(page, [{ name: "우유", done: true }]);
 
     const clear = await ui(page).clearDone.boundingBox();
     const del = await page.locator(".delete-btn").first().boundingBox();
@@ -437,11 +568,11 @@ test.describe("접근성", () => {
   });
 
   test("Tab 순서와 키보드 포커스 시 파란 테두리", async ({ page }) => {
-    await seed(page, [{ id: "a", name: "A", done: true }]);
+    await seed(page, [{ name: "A", done: true }]);
     await page.locator("h1").click();
 
     const seen = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await page.keyboard.press("Tab");
       seen.push(
         await page.evaluate(() => {
@@ -455,12 +586,12 @@ test.describe("접근성", () => {
         })
       );
     }
-    expect(seen.map((s) => s.name)).toEqual(["item-input", "추가", "item-a", "A 삭제", "clear-done"]);
+    expect(seen.map((s) => s.name)).toEqual(["logout", "item-input", "추가", "item-1", "A 삭제", "clear-done"]);
     expect(seen.every((s) => s.ring)).toBe(true);
   });
 
   test("마우스로 누를 때 버튼·체크박스는 테두리 없음, 입력창은 파란 테두리", async ({ page }) => {
-    await seed(page, [{ id: "a", name: "A", done: false }]);
+    await seed(page, [{ name: "A", done: false }]);
     const outline = () => page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle);
 
     await ui(page).checkboxes.first().click();
